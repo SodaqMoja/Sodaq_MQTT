@@ -21,9 +21,15 @@
  */
 
 /*
- * This example shows how to do a MQTT PUBLISH via a GPRSbee connection
+ * This example shows how to do a MQTT PUBLISH via a GPRSbee connection.
+ * It does the PUBLISH ten times and then it quits. The PUBLISH goes to
+ * the test MQTT server at test.moquitto.org.
  *
- * You need two Arduino libraries: Sodaq_MQTT and GPRSbee.
+ * To see the message you can subscribe, for example from the command
+ * line with:
+ *    mosquitto_sub -h test.mosquitto.org -t "SODAQ/demo/#"
+ *
+ * To build this example you need two Arduino libraries: Sodaq_MQTT and GPRSbee.
  */
 
 #include <GPRSbee.h>
@@ -60,7 +66,7 @@ void setup()
 
   // Set the APN. You can set the APN user and password too
   mqtt_gprsbee.setApn("public4.m2minternet.com");
-  // Inform our mqtt that we use mqtt_gprsbee
+  // Inform our mqtt instance that we use mqtt_gprsbee as the transport
   mqtt.setTransport(&mqtt_gprsbee);
 }
 
