@@ -23,6 +23,9 @@
 #ifndef SODAQ_MQTT_H_
 #define SODAQ_MQTT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "Sodaq_MQTT_Transport.h"
 
 /*!
@@ -38,13 +41,14 @@ public:
   void setAuth(const char * name, const char * pw);
   void setClientId(const char * id);
   void setTransport(MQTT_Transport * transport) { _transport = transport; }
-  bool publish(const char * topic, uint8_t * msg, size_t msg_len);
+  bool publish(const char * topic, const uint8_t * msg, size_t msg_len);
+  bool publish(const char * topic, const char * msg);
   void close();
 private:
   bool connect();
   bool disconnect();
   size_t assemblePublishPacket(uint8_t * pckt, size_t size,
-      const char * topic, uint8_t * msg, size_t msg_len);
+      const char * topic, const uint8_t * msg, size_t msg_len);
   size_t assembleConnectPacket(uint8_t * pckt, size_t size);
   //size_t assembleDisconnectPacket(uint8_t * pckt, size_t size);
 

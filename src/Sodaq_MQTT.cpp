@@ -62,10 +62,15 @@ void MQTT::setClientId(const char * id)
 
 /*!
  * \brief Publish a message
+ * \param topic The topic of the publish
+ * \param msg The (binary) message to publish
+ * \param msg_len The length of the (binary) message
+ *
+ * Create a PUBLISH packet and send it to the MQTT server
  *
  * \returns false if sending the message failed somehow
  */
-bool MQTT::publish(const char * topic, uint8_t * msg, size_t msg_len)
+bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len)
 {
   bool retval = false;
 
@@ -90,6 +95,21 @@ bool MQTT::publish(const char * topic, uint8_t * msg, size_t msg_len)
 
 ending:
   return retval;
+}
+
+
+/*!
+ * \brief Publish a message
+ * \param topic The topic of the publish
+ * \param msg The (ASCII) message to publish
+ *
+ * Create a PUBLISH packet and send it to the MQTT server
+ *
+ * \returns false if sending the message failed somehow
+ */
+bool MQTT::publish(const char * topic, const char * msg)
+{
+  return publish(topic, (const uint8_t *)msg, strlen(msg));
 }
 
 /*!
@@ -240,7 +260,7 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size)
  * \returns The size of the assembled packet.
  */
 size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
-    const char * topic, uint8_t * msg, size_t msg_len)
+    const char * topic, const uint8_t * msg, size_t msg_len)
 {
   // Assume buf is not NULL
 

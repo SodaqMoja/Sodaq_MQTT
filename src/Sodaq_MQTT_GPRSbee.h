@@ -23,6 +23,9 @@
 #ifndef SODAQ_MQTT_GPRSBEE_H_
 #define SODAQ_MQTT_GPRSBEE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "Sodaq_MQTT_Transport.h"
 
 class MQTT_GPRSbee : public MQTT_Transport

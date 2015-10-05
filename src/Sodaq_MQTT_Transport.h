@@ -23,6 +23,9 @@
 #ifndef SODAQ_MQTT_TRANSPORT_H_
 #define SODAQ_MQTT_TRANSPORT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 /*!
  * \brief This class is used to define the interface functions to transport MQTT packets
  *
