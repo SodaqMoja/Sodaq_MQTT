@@ -34,7 +34,6 @@ class MQTT
 {
 public:
   MQTT();
-  MQTT(const char * server, uint16_t port = 1883, const char * name = 0, const char * pw = 0);
   void setServer(const char * server, uint16_t port = 1883);
   void setAuth(const char * name, const char * pw);
   void setClientId(const char * id);
@@ -70,5 +69,10 @@ private:
   const char * _password;
   const char * _clientId;
 };
+
+/*!
+ * \brief This is the default (the only?) instance of the MQTT class
+ */
+extern MQTT mqtt;
 
 #endif /* SODAQ_MQTT_H_ */

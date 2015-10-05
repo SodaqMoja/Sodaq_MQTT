@@ -57,3 +57,5 @@ bool MQTT_GPRSbee::receivePacket(uint8_t * pckt, size_t expected_len)
 {
   return gprsbee.receiveDataTCP(pckt, expected_len);
 }
+
+MQTT_GPRSbee mqtt_gprsbee;

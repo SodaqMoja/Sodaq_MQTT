@@ -263,3 +263,5 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
   memcpy(pckt, msg, msg_len);
   return pckt_len + 2;
 }
+
+MQTT mqtt;

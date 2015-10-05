@@ -42,4 +42,9 @@ private:
   const char * _apnPassword;
 };
 
+/*!
+ * \brief This is the default (the only?) instance of the MQTT_GPRSbee class
+ */
+extern MQTT_GPRSbee mqtt_gprsbee;
+
 #endif /* SODAQ_MQTT_GPRSBEE_H_ */

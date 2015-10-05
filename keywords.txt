@@ -1,0 +1,31 @@
+#######################################
+# Syntax Coloring Map For Sodaq_MQTT
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+MQTT				KEYWORD1
+MQTT_GPRSbee			KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+setServer			KEYWORD2
+setAuth				KEYWORD2
+setClientId			KEYWORD2
+setTransport			KEYWORD2
+publish				KEYWORD2
+close				KEYWORD2
+
+#######################################
+# Instances (KEYWORD3)
+#######################################
+
+mqtt				KEYWORD3
+mqtt_gprsbee			KEYWORD3
+
+#######################################
+# Constants (LITERAL1)
+#######################################
