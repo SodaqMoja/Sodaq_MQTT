@@ -11,8 +11,9 @@ Here is a quick example (also present in the examples directory).  It is
 not really exciting but it shows which minimal steps are required to
 publish a message.  It uses a freely available MQTT server from the people
 that wrote the mosquitto tools.  When you run this example you should set
-up a client that listens (subscribes) to the messages.  Something like this
-  mosquitto_sub -h test.mosquitto.org -t "SODAQ/demo/#"
+up a client that listens (subscribes) to the messages.  Something like this:
+
+    mosquitto_sub -h test.mosquitto.org -t "SODAQ/demo/#"
 
 ```c
 #include <GPRSbee.h>
