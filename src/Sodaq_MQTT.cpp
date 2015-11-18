@@ -115,13 +115,13 @@ bool MQTT::publish(const char * topic, const char * msg)
 /*!
  * \brief Close the connection
  */
-void MQTT::close()
+void MQTT::close(bool switchOff)
 {
   if (_state == ST_MQTT_CONNECTED) {
     disconnect();
   }
 
-  _transport->closeTCP();
+  _transport->closeTCP(switchOff);
   _state = ST_TCP_CLOSED;
 }
 

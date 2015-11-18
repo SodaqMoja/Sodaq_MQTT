@@ -38,7 +38,7 @@ public:
   virtual ~MQTT_Transport() {}
 
   virtual bool openTCP(const char * server, uint16_t port = 1883) = 0;
-  virtual bool closeTCP() = 0;
+  virtual bool closeTCP(bool switchOff=true) = 0;
   virtual bool sendPacket(uint8_t * pckt, size_t len) = 0;
   virtual bool receivePacket(uint8_t * pckt, size_t expected_len) = 0;
 protected:

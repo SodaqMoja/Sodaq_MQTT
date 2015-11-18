@@ -43,7 +43,7 @@ public:
   void setTransport(MQTT_Transport * transport) { _transport = transport; }
   bool publish(const char * topic, const uint8_t * msg, size_t msg_len);
   bool publish(const char * topic, const char * msg);
-  void close();
+  void close(bool switchOff=true);
 private:
   bool connect();
   bool disconnect();

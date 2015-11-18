@@ -42,9 +42,9 @@ bool MQTT_GPRSbee::openTCP(const char * server, uint16_t port)
   return gprsbee.openTCP(_apn, _apnUser, _apnPassword, server, port);
 }
 
-bool MQTT_GPRSbee::closeTCP()
+bool MQTT_GPRSbee::closeTCP(bool switchOff)
 {
-  gprsbee.closeTCP();
+  gprsbee.closeTCP(switchOff);
   return true;
 }
 

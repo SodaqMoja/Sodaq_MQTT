@@ -34,7 +34,7 @@ public:
   ~MQTT_GPRSbee() {}
 
   bool openTCP(const char * server, uint16_t port = 1883);
-  bool closeTCP();
+  bool closeTCP(bool switchOff=true);
   bool sendPacket(uint8_t * pckt, size_t len);
   bool receivePacket(uint8_t * pckt, size_t expected_len);
 
