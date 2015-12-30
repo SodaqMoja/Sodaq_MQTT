@@ -26,7 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "Sodaq_MQTT_Transport.h"
+#include "Sodaq_GSM_Modem.h"
 
 /*!
  * \brief The maximum length of a packet
@@ -40,7 +40,7 @@ public:
   void setServer(const char * server, uint16_t port = 1883);
   void setAuth(const char * name, const char * pw);
   void setClientId(const char * id);
-  void setTransport(MQTT_Transport * transport) { _transport = transport; }
+  void setTransport(Sodaq_GSM_Modem * transport) { _transport = transport; }
   bool publish(const char * topic, const uint8_t * msg, size_t msg_len);
   bool publish(const char * topic, const char * msg);
   void close(bool switchOff=true);
@@ -66,7 +66,7 @@ private:
     ST_TCP_CLOSED,
   };
   enum State_e _state;
-  MQTT_Transport * _transport;
+  Sodaq_GSM_Modem * _transport;
   const char * _server;
   uint16_t _port;
   const char * _name;

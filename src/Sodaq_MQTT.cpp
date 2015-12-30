@@ -88,7 +88,7 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len)
   size_t pckt_len;
   // Assemble the PUBLISH packet
   pckt_len = assemblePublishPacket(pckt, sizeof(pckt), topic, msg, msg_len);
-  if (!_transport->sendPacket(pckt, pckt_len)) {
+  if (!_transport->sendMQTTPacket(pckt, pckt_len)) {
     goto ending;
   }
   retval = true;
@@ -121,7 +121,7 @@ void MQTT::close(bool switchOff)
     disconnect();
   }
 
-  _transport->closeTCP(switchOff);
+  _transport->closeMQTT(switchOff);
   _state = ST_TCP_CLOSED;
 }
 
@@ -132,7 +132,7 @@ bool MQTT::connect()
 {
   bool retval = false;
   if (_state != ST_TCP_OPEN) {
-    if (!_transport->openTCP(_server, _port)) {
+    if (!_transport->openMQTT(_server, _port)) {
       goto ending;
     }
     _state = ST_TCP_OPEN;
@@ -142,14 +142,14 @@ bool MQTT::connect()
   uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
   size_t pckt_len;
   pckt_len = assembleConnectPacket(pckt, sizeof(pckt));
-  if (!_transport->sendPacket(pckt, pckt_len)) {
+  if (!_transport->sendMQTTPacket(pckt, pckt_len)) {
     goto ending;
   }
 
   // Receive the CONNACK packet
   // Expecting CONNACK 20 02 00 00
   uint8_t mqtt_connack[4];
-  if (!_transport->receivePacket(mqtt_connack, sizeof(mqtt_connack))) {
+  if (!_transport->receiveMQTTPacket(mqtt_connack, sizeof(mqtt_connack))) {
     goto ending;
   }
   if (mqtt_connack[0] != (CPT_CONNACK << 4) ||
@@ -176,7 +176,7 @@ bool MQTT::disconnect()
   uint8_t pckt[2];
   pckt[0] = (CPT_DISCONNECT << 4);
   pckt[1] = 0;
-  if (!_transport->sendPacket(pckt, 2)) {
+  if (!_transport->sendMQTTPacket(pckt, 2)) {
     goto ending;
   }
   retval = true;
