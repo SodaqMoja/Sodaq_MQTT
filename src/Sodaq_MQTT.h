@@ -26,7 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "Sodaq_GSM_Modem.h"
+#include <Sodaq_GSM_Modem.h>
 
 /*!
  * \brief The maximum length of a packet

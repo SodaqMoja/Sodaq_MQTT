@@ -1,5 +1,5 @@
 /*!
- * \file gprsbee_pub.ino
+ * \file 3gbee_pub.ino
  *
  * Copyright (c) 2015-2016 Kees Bakker.  All rights reserved.
  *
@@ -32,7 +32,7 @@
  * To build this example you need two Arduino libraries: Sodaq_MQTT and GPRSbee.
  */
 
-#include <GPRSbee.h>
+#include <Sodaq_3Gbee.h>
 #include <Sodaq_MQTT.h>
 
 #define APN "public4.m2minternet.com"
@@ -67,19 +67,20 @@ void setup()
     mqtt.setClientId("gprsbee_pub_12345");
 
     /*
-     * The transport layer is a GPRSbee
+     * The transport layer is a 3Gbee
      */
+    // Beeslot
     modemSerial.begin(9600);
 
-    // This is the code to initialize the GPRSbee on a Autonomo
-    gprsbee.initAutonomoSIM800(modemSerial, BEE_VCC, BEEDTR, BEECTS, 200);
+    // This is the code to initialize the 3Gbee
+    sodaq_3gbee.init(modemSerial, BEE_VCC, BEEDTR, BEECTS);
     // Optionally enable diagnostic messages from GPRSbee
-    gprsbee.setDiag(MySerial);
+    sodaq_3gbee.setDiag(MySerial);
 
     // Set the APN. You can set the APN user and password too
-    gprsbee.setApn(APN);
+    sodaq_3gbee.setApn(APN);
     // Inform our mqtt instance that we use gprsbee as the transport
-    mqtt.setTransport(&gprsbee);
+    mqtt.setTransport(&sodaq_3gbee);
 }
 
 void loop()
