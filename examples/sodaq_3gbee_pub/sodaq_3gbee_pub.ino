@@ -1,5 +1,5 @@
 /*!
- * \file 3gbee_pub.ino
+ * \file sodaq_3gbee_pub.ino
  *
  * Copyright (c) 2015-2016 Kees Bakker.  All rights reserved.
  *
