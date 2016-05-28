@@ -30,9 +30,9 @@ MQTT::MQTT()
   _transport = 0;
   _server = 0;
   _port = 1883;
-  _name = 0;
-  _password = 0;
-  _clientId = 0;
+  _name = "";
+  _password = "";
+  _clientId = "";
 }
 
 /*!
@@ -52,6 +52,7 @@ void MQTT::setAuth(const char * name, const char * pw)
   _name = name;
   _password = pw;
 }
+
 /*!
  * \brief Set the client ID for MQTT
  */
