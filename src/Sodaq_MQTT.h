@@ -36,42 +36,42 @@
 class MQTT
 {
 public:
-  MQTT();
-  void setServer(const char * server, uint16_t port = 1883);
-  void setAuth(const char * name, const char * pw);
-  void setClientId(const char * id);
-  void setTransport(Sodaq_GSM_Modem * transport) { _transport = transport; }
-  bool publish(const char * topic, const uint8_t * msg, size_t msg_len);
-  bool publish(const char * topic, const char * msg);
-  void close(bool switchOff=true);
+    MQTT();
+    void setServer(const char * server, uint16_t port = 1883);
+    void setAuth(const char * name, const char * pw);
+    void setClientId(const char * id);
+    void setTransport(Sodaq_GSM_Modem * transport) { _transport = transport; }
+    bool publish(const char * topic, const uint8_t * msg, size_t msg_len);
+    bool publish(const char * topic, const char * msg);
+    void close(bool switchOff=true);
 private:
-  bool connect();
-  bool disconnect();
-  size_t assemblePublishPacket(uint8_t * pckt, size_t size,
-      const char * topic, const uint8_t * msg, size_t msg_len);
-  size_t assembleConnectPacket(uint8_t * pckt, size_t size);
-  //size_t assembleDisconnectPacket(uint8_t * pckt, size_t size);
+    bool connect();
+    bool disconnect();
+    size_t assemblePublishPacket(uint8_t * pckt, size_t size,
+            const char * topic, const uint8_t * msg, size_t msg_len);
+    size_t assembleConnectPacket(uint8_t * pckt, size_t size);
+    //size_t assembleDisconnectPacket(uint8_t * pckt, size_t size);
 
-  enum ControlPacketType_e {
-    CPT_CONNECT = 1,
-    CPT_CONNACK = 2,
-    CPT_PUBLISH = 3,
-    CPT_DISCONNECT = 14,
-  };
-  enum State_e {
-    ST_UNKNOWN,
-    ST_TCP_OPEN,
-    ST_MQTT_CONNECTED,
-    ST_MQTT_DISCONNECTED,
-    ST_TCP_CLOSED,
-  };
-  enum State_e _state;
-  Sodaq_GSM_Modem * _transport;
-  const char * _server;
-  uint16_t _port;
-  const char * _name;
-  const char * _password;
-  const char * _clientId;
+    enum ControlPacketType_e {
+        CPT_CONNECT = 1,
+        CPT_CONNACK = 2,
+        CPT_PUBLISH = 3,
+        CPT_DISCONNECT = 14,
+    };
+    enum State_e {
+        ST_UNKNOWN,
+        ST_TCP_OPEN,
+        ST_MQTT_CONNECTED,
+        ST_MQTT_DISCONNECTED,
+        ST_TCP_CLOSED,
+    };
+    enum State_e _state;
+    Sodaq_GSM_Modem * _transport;
+    const char * _server;
+    uint16_t _port;
+    const char * _name;
+    const char * _password;
+    const char * _clientId;
 };
 
 /*!
