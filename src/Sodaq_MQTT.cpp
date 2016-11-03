@@ -29,6 +29,7 @@
  */
 
 #include <Arduino.h>
+#include <stdint.h>
 
 #include "Sodaq_MQTT.h"
 
@@ -72,7 +73,7 @@ MQTT::MQTT()
     _port = 1883;
     _name = "";
     _password = "";
-    _clientId = "";
+    _clientId = 0;
     _packetIdentifier = 0;
     _publishHandler = 0;
     _packetHandler = 0;
@@ -100,10 +101,21 @@ void MQTT::setAuth(const char * name, const char * pw)
 
 /*!
  * \brief Set the client ID for MQTT
+ *
+ * WARNING: This does a malloc
  */
 void MQTT::setClientId(const char * id)
 {
-    _clientId = id;
+    if (id && *id) {
+        if (!_clientId || strcmp(_clientId, id) != 0) {
+            size_t len = strlen(id);
+            _clientId = static_cast<char*>(realloc(_clientId, len + 1));
+            strcpy(_clientId, id);
+        }
+    } else {
+        free(_clientId);
+        _clientId = 0;
+    }
 }
 
 static void setMQTTStateClosed(void)
@@ -386,6 +398,14 @@ bool MQTT::loop()
 }
 
 /*!
+ * Is there a packet available
+ */
+bool MQTT::availablePacket()
+{
+    return _transport->availableMQTTPacket() > 0;
+}
+
+/*!
  * \brief Close the connection
  */
 void MQTT::close(bool switchOff)
@@ -427,17 +447,28 @@ void MQTT::setPacketHandler(void (*handler)(uint8_t *pckt, size_t len))
 }
 
 /*!
+ * \brief Open the MQTT connection
+ */
+bool MQTT::open()
+{
+    if (_state != ST_TCP_OPEN) {
+        if (_transport->openMQTT(_server, _port)) {
+            _state = ST_TCP_OPEN;
+        }
+    }
+    return _state == ST_TCP_OPEN;
+}
+
+/*!
  * \brief Connect to the MQTT server
  */
 bool MQTT::connect()
 {
     debugPrintLn(DEBUG_PREFIX + "CONNECT");
     bool retval = false;
-    if (_state != ST_TCP_OPEN) {
-        if (!_transport->openMQTT(_server, _port)) {
-            goto ending;
-        }
-        _state = ST_TCP_OPEN;
+
+    if (!open()) {
+        goto ending;
     }
 
     // Assemble a CONNECT packet
@@ -464,8 +495,13 @@ bool MQTT::connect()
     if (pckt_size != sizeof(mqtt_connack)) {
         goto ending;
     }
-    if (mqtt_connack[0] != (CPT_CONNACK << 4) ||
-        mqtt_connack[3] != 0) {
+    if (mqtt_connack[0] != (CPT_CONNACK << 4)) {
+        debugPrintLn(DEBUG_PREFIX + " not CONNACK, but " + (mqtt_connack[0] >> 4));
+        goto ending;
+    }
+    // Return code
+    if (mqtt_connack[3] != 0) {
+        debugPrintLn(DEBUG_PREFIX + " connection not accepted, return code " + mqtt_connack[3]);
         goto ending;
     }
 

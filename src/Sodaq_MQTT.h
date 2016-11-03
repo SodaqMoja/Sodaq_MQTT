@@ -44,6 +44,7 @@ public:
     void setClientId(const char * id);
     void setTransport(Sodaq_GSM_Modem * transport);
     void setKeepAlive(uint16_t x) { _keepAlive = x; }
+
     bool publish(const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos=0);
     bool publish(const char * topic, const char * msg, uint8_t qos=0);
     bool subscribe(const char * topic, uint8_t qos=0);
@@ -51,6 +52,8 @@ public:
     void setPublishHandler(void (*handler)(const char *topic, const uint8_t *msg, size_t msg_length));
     void setPacketHandler(void (*handler)(uint8_t *pckt, size_t len));
     bool loop();
+    bool availablePacket();
+    bool open();
     void close(bool switchOff=true);
     bool isConnected();
     void setStateClosed();
@@ -105,7 +108,7 @@ private:
     uint16_t _port;
     const char * _name;
     const char * _password;
-    const char * _clientId;
+    char * _clientId;
     uint16_t _packetIdentifier;
     void (*_publishHandler)(const char *topic, const uint8_t *msg, size_t msg_length);
     void (*_packetHandler)(uint8_t *pckt, size_t len);
