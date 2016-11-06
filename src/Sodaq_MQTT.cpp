@@ -49,6 +49,8 @@
 class MQTTPacketInfo
 {
 public:
+    size_t _pckt_length;
+
     char *_topic;
     size_t _topic_size;
     size_t _topic_length;
@@ -71,8 +73,8 @@ MQTT::MQTT()
     _transport = 0;
     _server = 0;
     _port = 1883;
-    _name = "";
-    _password = "";
+    _name = 0;
+    _password = 0;
     _clientId = 0;
     _packetIdentifier = 0;
     _publishHandler = 0;
@@ -95,8 +97,28 @@ void MQTT::setServer(const char * server, uint16_t port)
  */
 void MQTT::setAuth(const char * name, const char * pw)
 {
-    _name = name;
-    _password = pw;
+    if (name && *name) {
+        if (!_name || strcmp(_name, name) != 0) {
+            size_t len = strlen(name);
+            _name = static_cast<char*>(realloc(_name, len + 1));
+            debugPrintLn(String("setAuth _name=") + (uint32_t)_name);
+            strcpy(_name, name);
+        }
+    } else {
+        free(_name);
+        _name = 0;
+    }
+
+    if (pw && *pw) {
+        if (!_password || strcmp(_password, pw) != 0) {
+            size_t len = strlen(pw);
+            _password = static_cast<char*>(realloc(_password, len + 1));
+            strcpy(_password, pw);
+        }
+    } else {
+        free(_password);
+        _password = 0;
+    }
 }
 
 /*!
@@ -148,10 +170,10 @@ void MQTT::setTransport(Sodaq_GSM_Modem * transport)
  *
  * \returns false if sending the message failed somehow
  */
-bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos)
+bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos, uint8_t retain)
 {
     debugPrintLn(DEBUG_PREFIX + "PUBLISH topic: " + topic);
-    debugPrintLn(DEBUG_PREFIX + "PUBLISH msg:");
+    debugPrintLn(DEBUG_PREFIX + "PUBLISH msg: " + (const char *)msg);
     debugDump(msg, msg_len);
     bool retval = false;
 
@@ -170,7 +192,7 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
     uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the PUBLISH packet
-    pckt_len = assemblePublishPacket(pckt, sizeof(pckt), topic, msg, msg_len, qos);
+    pckt_len = assemblePublishPacket(pckt, sizeof(pckt), topic, msg, msg_len, qos, retain);
     if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
         goto ending;
     }
@@ -179,8 +201,35 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
         // Nothing to be received
     } else if (qos == 1) {
         // Handle incoming PUBACK
+        // Expecting PUBACK 4? 02 ?? ??
+        size_t pckt_size;
+        uint8_t mqtt_puback[4];
+        uint16_t pckt_id;
+        pckt_size = _transport->receiveMQTTPacket(mqtt_puback, sizeof(mqtt_puback));
+        if (pckt_size == 0) {
+            debugPrintLn(DEBUG_PREFIX + " timed out");
+            goto ending;
+        }
+        if (pckt_size != sizeof(mqtt_puback)) {
+            debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
+            goto ending;
+        }
+        if (mqtt_puback[0] != (CPT_PUBACK << 4)) {
+            debugPrintLn(DEBUG_PREFIX + " not PUBACK");
+            goto ending;
+        }
+        if (mqtt_puback[1] != 2) {
+            debugPrintLn(DEBUG_PREFIX + " not correct length");
+            goto ending;
+        }
+        pckt_id = ((uint16_t)mqtt_puback[2] << 8) | mqtt_puback[3];
+        if (pckt_id != _packetIdentifier) {
+            debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
+            goto ending;
+        }
     } else if (qos == 2) {
         // Handle incoming PUBREC
+        // TODO
     } else {
         // Shouldn't happen
     }
@@ -199,9 +248,9 @@ ending:
  *
  * \returns false if sending the message failed somehow
  */
-bool MQTT::publish(const char * topic, const char * msg, uint8_t qos)
+bool MQTT::publish(const char * topic, const char * msg, uint8_t qos, uint8_t retain)
 {
-    return publish(topic, (const uint8_t *)msg, strlen(msg), qos);
+    return publish(topic, (const uint8_t *)msg, strlen(msg), qos, retain);
 }
 
 /*!
@@ -345,50 +394,69 @@ bool MQTT::loop()
     // Is there a packet?
     bool status;
     size_t pckt_size;
+    size_t pckt_ix;
     pckt_size = _transport->availableMQTTPacket();
     if (pckt_size > 0) {
-        uint8_t mqtt_packet[256];
+        uint8_t mqtt_packets[256];
         char topic[128];
         uint8_t msg[128];
         MQTTPacketInfo pckt_info;
-        pckt_info._topic = topic;
-        pckt_info._topic_size = sizeof(topic);
-        pckt_info._msg = msg;
-        pckt_info._msg_size = sizeof(msg);
 
-        pckt_size = _transport->receiveMQTTPacket(mqtt_packet, sizeof(mqtt_packet));
+        pckt_size = _transport->receiveMQTTPacket(mqtt_packets, sizeof(mqtt_packets));
         if (pckt_size > 0) {
             // TODO
 
             debugPrintLn(DEBUG_PREFIX + " received packet:");
-            debugDump(mqtt_packet, pckt_size);
+            debugDump(mqtt_packets, pckt_size);
 
-            switch ((mqtt_packet[0] >> 4) & 0xF) {
-            case CPT_PUBLISH:
-                status = dissectPublishPacket(mqtt_packet, pckt_size, pckt_info);
-                if (status) {
-                    if (pckt_info._qos == 0) {
-                        // Nothing else to do
-                    } else if (pckt_info._qos == 1) {
-                        // TODO
-                        // Send PUBACK
-                    } else if (pckt_info._qos == 2) {
-                        // TODO
-                        // Send PUBREC
-                    } else {
-                        // Shouldn't happen
-                    }
+            // Notice that there can be multiple MQTT packet
+            pckt_ix = 0;
+            while (pckt_ix < pckt_size) {
+                switch ((mqtt_packets[pckt_ix] >> 4) & 0xF) {
+                case CPT_PUBLISH:
 
-                    if (_publishHandler) {
-                        _publishHandler(topic, msg, pckt_info._msg_truncated_length);
+                    memset(&pckt_info, 0, sizeof(pckt_info));
+                    pckt_info._topic = topic;
+                    pckt_info._topic_size = sizeof(topic);
+                    pckt_info._msg = msg;
+                    pckt_info._msg_size = sizeof(msg);
+
+                    status = dissectPublishPacket(&mqtt_packets[pckt_ix], pckt_size - pckt_ix, pckt_info);
+                    if (status) {
+                        if (pckt_info._qos == 0) {
+                            // Nothing else to do
+                        } else if (pckt_info._qos == 1) {
+                            // TODO
+                            // Send PUBACK
+                        } else if (pckt_info._qos == 2) {
+                            // TODO
+                            // Send PUBREC
+                        } else {
+                            // Shouldn't happen
+                        }
+
+                        if (_publishHandler) {
+                            _publishHandler(topic, msg, pckt_info._msg_truncated_length);
+                        }
+                        pckt_ix += pckt_info._pckt_length;
                     }
+                    else {
+                        // TODO
+                        // We don't know if we can trust the computed length
+                        // For now skip the rest
+                        pckt_ix = pckt_size;
+                    }
+                    break;
+                default:
+                    if (_packetHandler) {
+                        _packetHandler(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    }
+                    // TODO
+                    // We don't know the packet size. There can be multiple
+                    // For now skip the rest
+                    pckt_ix = pckt_size;
+                    break;
                 }
-                break;
-            default:
-                if (_packetHandler) {
-                    _packetHandler(mqtt_packet, pckt_size);
-                }
-                break;
             }
         }
         return true;
@@ -613,7 +681,7 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
  * \returns The size of the assembled packet.
  */
 size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
-    const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos)
+    const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos, uint8_t retain)
 {
     // Assume pckt is not NULL
     uint8_t * ptr = pckt;
@@ -637,8 +705,7 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
     // Header
     const uint8_t dup = 0;
-    const uint8_t retain = 1;           // TODO. Make this a (config?) parameter
-    *ptr++ = (CPT_PUBLISH << 4) | (dup << 3) | (qos << 1) | (retain << 0);
+    *ptr++ = (CPT_PUBLISH << 4) | ((dup & 0x01) << 3) | ((qos & 0x03) << 1) | ((retain & 0x01) << 0);
     // Assume length smaller than 128, or else we need multi byte length
     *ptr++ = remaining;
 
@@ -781,14 +848,19 @@ bool MQTT::dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo
 
     ptr++;
 
+    // Get the "remaining length"
     size_t nrBytesRL = 0;
     uint32_t remaining = getRemainingLength(ptr, nrBytesRL);
     ptr += nrBytesRL;
     debugPrintLn(DEBUG_PREFIX + "    remaining=" + remaining);
 
+    pckt_info._pckt_length = 1 + nrBytesRL + remaining;
+    debugPrintLn(DEBUG_PREFIX + "    total size=" + pckt_info._pckt_length);
+
     pckt_info._topic_length = get_uint16_be(ptr);
     ptr += 2;
     remaining -= pckt_info._topic_length + 2;
+
     memset(pckt_info._topic, 0, pckt_info._topic_size);
     size_t my_topic_length = pckt_info._topic_length;
     if (my_topic_length > (pckt_info._topic_size - 1)) {

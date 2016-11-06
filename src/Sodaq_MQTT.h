@@ -45,9 +45,9 @@ public:
     void setTransport(Sodaq_GSM_Modem * transport);
     void setKeepAlive(uint16_t x) { _keepAlive = x; }
 
-    bool publish(const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos=0);
-    bool publish(const char * topic, const char * msg, uint8_t qos=0);
-    bool subscribe(const char * topic, uint8_t qos=0);
+    bool publish(const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos = 0, uint8_t retain = 1);
+    bool publish(const char * topic, const char * msg, uint8_t qos = 0, uint8_t retain = 1);
+    bool subscribe(const char * topic, uint8_t qos = 0);
     bool ping();
     void setPublishHandler(void (*handler)(const char *topic, const uint8_t *msg, size_t msg_length));
     void setPacketHandler(void (*handler)(uint8_t *pckt, size_t len));
@@ -66,7 +66,7 @@ private:
     bool connect();
     bool disconnect();
     size_t assemblePublishPacket(uint8_t * pckt, size_t size,
-            const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos = 0);
+            const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos = 0, uint8_t retain = 1);
     size_t assembleSubscribePacket(uint8_t * pckt, size_t size,
             const char * topic, uint8_t qos = 0);
     size_t assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAlive);
@@ -106,8 +106,8 @@ private:
     Sodaq_GSM_Modem * _transport;
     const char * _server;
     uint16_t _port;
-    const char * _name;
-    const char * _password;
+    char * _name;
+    char * _password;
     char * _clientId;
     uint16_t _packetIdentifier;
     void (*_publishHandler)(const char *topic, const uint8_t *msg, size_t msg_length);
