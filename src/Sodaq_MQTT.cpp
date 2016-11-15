@@ -101,7 +101,6 @@ void MQTT::setAuth(const char * name, const char * pw)
         if (!_name || strcmp(_name, name) != 0) {
             size_t len = strlen(name);
             _name = static_cast<char*>(realloc(_name, len + 1));
-            debugPrintLn(String("setAuth _name=") + (uint32_t)_name);
             strcpy(_name, name);
         }
     } else {
