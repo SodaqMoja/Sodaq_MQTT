@@ -47,7 +47,7 @@ static bool is_subscribed;
 
 #if defined(ARDUINO_SODAQ_AUTONOMO)
 #define modemSerial Serial1
-#define MySerial Serial
+#define MySerial SerialUSB
 #elif defined(ARDUINO_SODAQ_MBILI)
 #define modemSerial Serial1
 #define MySerial Serial
