@@ -145,16 +145,16 @@ static void setMQTTStateClosed(void)
 }
 
 /*!
- * \brief Set the transport (GSM modem) for MQTT
+ * \brief Set the transport (MQTT Interface) for MQTT
  */
-void MQTT::setTransport(Sodaq_GSM_Modem * transport)
+void MQTT::setTransport(Sodaq_MQTT_Interface * transport)
 {
     _transport = transport;
     if (_transport) {
         // We can only handle one MQTT instance.
         // Is this the one MQTT instance?
         if (this == &mqtt) {
-            _transport->setTCPClosedHandler(setMQTTStateClosed);
+            _transport->setMQTTClosedHandler(setMQTTStateClosed);
         }
     }
 }
