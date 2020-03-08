@@ -33,7 +33,16 @@
 
 #include "Sodaq_MQTT.h"
 
+/**
+ * \def DEBUG Enable this define to get debug (diag) output
+ */
 #define DEBUG
+
+/**
+ * \def DEBUG_DUMP_PACKETS Enable this define to also enable diag of packets
+ */
+//#define DEBUG_DUMP_PACKETS
+
 #define DEBUG_PREFIX String("[MQTT]")
 
 #ifdef DEBUG
@@ -173,7 +182,9 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
 {
     debugPrintLn(DEBUG_PREFIX + "PUBLISH topic: " + topic);
     debugPrintLn(DEBUG_PREFIX + "PUBLISH msg: " + (const char *)msg);
+#ifdef DEBUG_DUMP_PACKETS
     debugDump(msg, msg_len);
+#endif
     bool retval = false;
 
     if (_transport == 0) {
@@ -668,8 +679,10 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     memcpy(ptr, _password, len);
     ptr += len;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "CONNECT packet:");
     debugDump(pckt, pckt_len + 2);
+#endif
 
     return pckt_len + 2;
 }
@@ -724,8 +737,10 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // Add Payload = topic message
     memcpy(ptr, msg, msg_len);
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PUBLISH packet:");
     debugDump(pckt, remaining + 2);
+#endif
 
     return remaining + 2;
 }
@@ -746,8 +761,10 @@ size_t MQTT::assemblePingreqPacket(uint8_t * pckt, size_t size)
     *ptr++ = (CPT_PINGREQ << 4);
     *ptr++ = remaining;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PINGREQ packet:");
     debugDump(pckt, remaining + 2);
+#endif
 
     return remaining + 2;
 }
@@ -800,8 +817,10 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
     ptr += topic_length;
     *ptr++ = qos & 0x3;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "SUBSCRIBE packet:");
     debugDump(pckt, pckt_len + 2);
+#endif
 
     return pckt_len + 2;
 }
