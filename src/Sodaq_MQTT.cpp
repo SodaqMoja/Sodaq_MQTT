@@ -90,6 +90,8 @@ MQTT::MQTT()
     _packetHandler = 0;
     _keepAlive = MQTT_DEFAULT_KEEP_ALIVE;
     _diagStream = 0;
+    _waiting_for_ack = false;
+    _ack_was_ok = false;;
 }
 
 /*!
@@ -197,6 +199,10 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
         }
     }
 
+    if (_waiting_for_ack) {
+        goto ending;
+    }
+
     newPacketIdentifier();
 
     uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
@@ -210,33 +216,23 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
     if (qos == 0) {
         // Nothing to be received
     } else if (qos == 1) {
-        // Handle incoming PUBACK
-        // Expecting PUBACK 4? 02 ?? ??
-        size_t pckt_size;
-        uint8_t mqtt_puback[4];
-        uint16_t pckt_id;
-        pckt_size = _transport->receiveMQTTPacket(mqtt_puback, sizeof(mqtt_puback));
-        if (pckt_size == 0) {
-            debugPrintLn(DEBUG_PREFIX + " timed out");
-            goto ending;
+        debugPrintLn(DEBUG_PREFIX + " expect PUBACK");
+        /* Handle incoming PUBACK in the next iteration of loop()
+         * Assume the ack will fail.
+         */
+        _waiting_for_ack = true;
+        _ack_was_ok = false;
+        /* Wait for ACK
+         * TODO
+         * How can we limit in case of failure?
+         * Let's hope we don't have to do PINGREQ while we're here.
+         * It is possible to receive a PUBLISH which will trigger a call to
+         * the main module to do something with it.
+         */
+        while (mqtt.isConnected() && _waiting_for_ack) {
+            mqtt.loop();
         }
-        if (pckt_size != sizeof(mqtt_puback)) {
-            debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-            goto ending;
-        }
-        if (mqtt_puback[0] != (CPT_PUBACK << 4)) {
-            debugPrintLn(DEBUG_PREFIX + " not PUBACK");
-            goto ending;
-        }
-        if (mqtt_puback[1] != 2) {
-            debugPrintLn(DEBUG_PREFIX + " not correct length");
-            goto ending;
-        }
-        pckt_id = ((uint16_t)mqtt_puback[2] << 8) | mqtt_puback[3];
-        if (pckt_id != _packetIdentifier) {
-            debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
-            goto ending;
-        }
+        retval = mqtt.wasAckOK();
     } else if (qos == 2) {
         // Handle incoming PUBREC
         // TODO
@@ -261,6 +257,39 @@ ending:
 bool MQTT::publish(const char * topic, const char * msg, uint8_t qos, uint8_t retain)
 {
     return publish(topic, (const uint8_t *)msg, strlen(msg), qos, retain);
+}
+
+/**
+ * Handle incoming PUBACK
+ *
+ * Expecting PUBACK 4? 02 ?? ??
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handlePUBACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 4;
+    debugPrintLn(DEBUG_PREFIX + " got PUBACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 2) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+    uint16_t pckt_id= ((uint16_t)pckt[2] << 8) | pckt[3];
+    if (pckt_id != _packetIdentifier) {
+        debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 /*!
@@ -301,41 +330,61 @@ bool MQTT::subscribe(const char * topic, uint8_t qos)
         goto ending;
     }
 
-    // Receive the SUBACK packet
-    // Expecting SUBACK 90 03 00 01 00
-    size_t pckt_size;
-    uint8_t mqtt_suback[5];
-    uint16_t pckt_id;
-    //uint8_t suback_return_code;
-    pckt_size = _transport->receiveMQTTPacket(mqtt_suback, sizeof(mqtt_suback));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
+    debugPrintLn(DEBUG_PREFIX + " expect SUBACK");
+    /* Handle incoming SUBACK in the next iteration of loop()
+     * Assume the ack will fail.
+     */
+    _waiting_for_ack = true;
+    _ack_was_ok = false;
+    /* Wait for ACK
+     * TODO
+     * How can we limit in case of failure?
+     * Let's hope we don't have to do PINGREQ while we're here.
+     * It is possible to receive a PUBLISH which will trigger a call to
+     * the main module to do something with it.
+     */
+    while (mqtt.isConnected() && mqtt.waitingForAck()) {
+        mqtt.loop();
     }
-    if (pckt_size != sizeof(mqtt_suback)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
+    retval = _ack_was_ok;
+
+ending:
+    return retval;
+}
+
+/**
+ * Handle incoming SUBACK
+ *
+ * Expecting SUBACK 90 03 00 01 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handleSUBACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 5;
+    debugPrintLn(DEBUG_PREFIX + " got SUBACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
     }
-    if (mqtt_suback[0] != (CPT_SUBACK << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not SUBACK");
-        goto ending;
-    }
-    if (mqtt_suback[1] != 3) {
+    if (pckt[1] != 3) {
         debugPrintLn(DEBUG_PREFIX + " not correct length");
-        goto ending;
+        return 0;
     }
-    pckt_id = ((uint16_t)mqtt_suback[2] << 8) | mqtt_suback[3];
+    uint16_t pckt_id= ((uint16_t)pckt[2] << 8) | pckt[3];
     if (pckt_id != _packetIdentifier) {
         debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
-        goto ending;
+        return 0;
     }
     //suback_return_code = mqtt_suback[4];
     // TODO Decide what we want to do with this
 
-    retval = true;
+    _ack_was_ok = true;
 
-ending:
-    return retval;
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 bool MQTT::ping()
@@ -353,6 +402,9 @@ bool MQTT::ping()
         }
     }
 
+    /* TODO
+     * Not needed
+     */
     newPacketIdentifier();
 
     uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
@@ -364,33 +416,53 @@ bool MQTT::ping()
         goto ending;
     }
 
-    // Receive the PINGRESP packet
-    // Expecting PINGRESP D0 00
-    size_t pckt_size;
-    uint8_t reply_pckt[2];
-    //uint8_t suback_return_code;
-    pckt_size = _transport->receiveMQTTPacket(reply_pckt, sizeof(reply_pckt));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
+    debugPrintLn(DEBUG_PREFIX + " expect PINGRESP");
+    /* Handle incoming PINGRESP in the next iteration of loop()
+     * Assume the it will fail.
+     */
+    _waiting_for_ack = true;
+    _ack_was_ok = false;
+    /* Wait for PINGRESP
+     * TODO
+     * How can we limit in case of failure?
+     * It is possible to receive a PUBLISH which will trigger a call to
+     * the main module to do something with it.
+     */
+    while (mqtt.isConnected() && mqtt.waitingForAck()) {
+        mqtt.loop();
     }
-    if (pckt_size != sizeof(reply_pckt)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
-    }
-    if (reply_pckt[0] != (CPT_PINGRESP << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not PINGRESP");
-        goto ending;
-    }
-    if (reply_pckt[1] != 0) {
-        debugPrintLn(DEBUG_PREFIX + " not correct length");
-        goto ending;
-    }
-
-    retval = true;
+    retval = _ack_was_ok;
 
 ending:
     return retval;
+}
+
+/**
+ * Handle incoming PINGRESP
+ *
+ * Expecting PINGRESP D0 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handlePINGRESP(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 2;
+    debugPrintLn(DEBUG_PREFIX + " got PINGRESP");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 0) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 /*!
@@ -405,6 +477,7 @@ bool MQTT::loop()
     bool status;
     size_t pckt_size;
     size_t pckt_ix;
+    size_t pckt_len;
     pckt_size = _transport->availableMQTTPacket();
     if (pckt_size > 0) {
         uint8_t mqtt_packets[256];
@@ -414,8 +487,6 @@ bool MQTT::loop()
 
         pckt_size = _transport->receiveMQTTPacket(mqtt_packets, sizeof(mqtt_packets));
         if (pckt_size > 0) {
-            // TODO
-
             debugPrintLn(DEBUG_PREFIX + " received packet:");
             debugDump(mqtt_packets, pckt_size);
 
@@ -457,6 +528,55 @@ bool MQTT::loop()
                         pckt_ix = pckt_size;
                     }
                     break;
+
+                case CPT_CONNACK:
+                    pckt_len = handleCONNACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_PUBACK:
+                    pckt_len = handlePUBACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_SUBACK:
+                    pckt_len = handleSUBACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_PINGRESP:
+                    pckt_len = handlePINGRESP(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
                 default:
                     if (_packetHandler) {
                         _packetHandler(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
@@ -557,38 +677,63 @@ bool MQTT::connect()
         goto ending;
     }
 
-    // Receive the CONNACK packet
-    // Expecting CONNACK 20 02 00 00
-    size_t pckt_size;
-    uint8_t mqtt_connack[4];
-    pckt_size = _transport->receiveMQTTPacket(mqtt_connack, sizeof(mqtt_connack));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
+    debugPrintLn(DEBUG_PREFIX + " expect CONNACK");
+    /* Handle incoming SUBACK in the next iteration of loop()
+     * Assume the ack will fail.
+     */
+    _waiting_for_ack = true;
+    _ack_was_ok = false;
+    /* Wait for ACK
+     * TODO
+     * How can we limit in case of failure?
+     * Let's hope we don't have to do PINGREQ while we're here.
+     * It is possible to receive a PUBLISH which will trigger a call to
+     * the main module to do something with it.
+     */
+    while (mqtt.isConnected() && mqtt.waitingForAck()) {
+        mqtt.loop();
     }
-    if (pckt_size != sizeof(mqtt_connack)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
+    retval = _ack_was_ok;
+    if (retval) {
+        // All went well
+        _state = ST_MQTT_CONNECTED;
     }
-    if (pckt_size != sizeof(mqtt_connack)) {
-        goto ending;
-    }
-    if (mqtt_connack[0] != (CPT_CONNACK << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not CONNACK, but " + (mqtt_connack[0] >> 4));
-        goto ending;
-    }
-    // Return code
-    if (mqtt_connack[3] != 0) {
-        debugPrintLn(DEBUG_PREFIX + " connection not accepted, return code " + mqtt_connack[3]);
-        goto ending;
-    }
-
-    // All went well
-    _state = ST_MQTT_CONNECTED;
-    retval = true;
 
 ending:
     return retval;
+}
+
+/**
+ * Handle incoming CONNACK
+ *
+ * Expecting CONNACK 20 02 00 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handleCONNACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 4;
+    debugPrintLn(DEBUG_PREFIX + " got CONNACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 2) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+    // Return code
+    if (pckt[3] != 0) {
+        debugPrintLn(DEBUG_PREFIX + " connection not accepted, return code " + pckt[3]);
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 /*!
