@@ -402,11 +402,6 @@ bool MQTT::ping()
         }
     }
 
-    /* TODO
-     * Not needed
-     */
-    newPacketIdentifier();
-
     uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the SUBSCRIBE packet
