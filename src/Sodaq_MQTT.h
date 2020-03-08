@@ -71,6 +71,7 @@ private:
     size_t handleSUBACK(uint8_t *pckt, size_t len);
     size_t handleCONNACK(uint8_t *pckt, size_t len);
     size_t handlePINGRESP(uint8_t *pckt, size_t len);
+    bool waitForAck(const String& expect);
     size_t assemblePublishPacket(uint8_t * pckt, size_t size,
             const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos = 0, uint8_t retain = 1);
     size_t assembleSubscribePacket(uint8_t * pckt, size_t size,

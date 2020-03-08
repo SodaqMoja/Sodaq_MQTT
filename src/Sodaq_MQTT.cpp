@@ -215,31 +215,15 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
 
     if (qos == 0) {
         // Nothing to be received
+        retval = true;
     } else if (qos == 1) {
-        debugPrintLn(DEBUG_PREFIX + " expect PUBACK");
-        /* Handle incoming PUBACK in the next iteration of loop()
-         * Assume the ack will fail.
-         */
-        _waiting_for_ack = true;
-        _ack_was_ok = false;
-        /* Wait for ACK
-         * TODO
-         * How can we limit in case of failure?
-         * Let's hope we don't have to do PINGREQ while we're here.
-         * It is possible to receive a PUBLISH which will trigger a call to
-         * the main module to do something with it.
-         */
-        while (mqtt.isConnected() && _waiting_for_ack) {
-            mqtt.loop();
-        }
-        retval = mqtt.wasAckOK();
+        retval = waitForAck("PUBACK");
     } else if (qos == 2) {
         // Handle incoming PUBREC
         // TODO
     } else {
         // Shouldn't happen
     }
-    retval = true;
 
 ending:
     return retval;
@@ -330,23 +314,7 @@ bool MQTT::subscribe(const char * topic, uint8_t qos)
         goto ending;
     }
 
-    debugPrintLn(DEBUG_PREFIX + " expect SUBACK");
-    /* Handle incoming SUBACK in the next iteration of loop()
-     * Assume the ack will fail.
-     */
-    _waiting_for_ack = true;
-    _ack_was_ok = false;
-    /* Wait for ACK
-     * TODO
-     * How can we limit in case of failure?
-     * Let's hope we don't have to do PINGREQ while we're here.
-     * It is possible to receive a PUBLISH which will trigger a call to
-     * the main module to do something with it.
-     */
-    while (mqtt.isConnected() && mqtt.waitingForAck()) {
-        mqtt.loop();
-    }
-    retval = _ack_was_ok;
+    retval = waitForAck("SUBACK");
 
 ending:
     return retval;
@@ -411,22 +379,7 @@ bool MQTT::ping()
         goto ending;
     }
 
-    debugPrintLn(DEBUG_PREFIX + " expect PINGRESP");
-    /* Handle incoming PINGRESP in the next iteration of loop()
-     * Assume the it will fail.
-     */
-    _waiting_for_ack = true;
-    _ack_was_ok = false;
-    /* Wait for PINGRESP
-     * TODO
-     * How can we limit in case of failure?
-     * It is possible to receive a PUBLISH which will trigger a call to
-     * the main module to do something with it.
-     */
-    while (mqtt.isConnected() && mqtt.waitingForAck()) {
-        mqtt.loop();
-    }
-    retval = _ack_was_ok;
+    retval = waitForAck("PINGRESP");
 
 ending:
     return retval;
@@ -458,6 +411,23 @@ size_t MQTT::handlePINGRESP(uint8_t *pckt, size_t len)
     /* Return the length of the packet
      */
     return pckt_len;
+}
+
+bool MQTT::waitForAck(const String& expect)
+{
+    debugPrintLn(DEBUG_PREFIX + " expect " + expect);
+    /* Handle incoming PINGRESP in the next iteration of loop()
+     * Assume the it will fail.
+     */
+    _waiting_for_ack = true;
+    _ack_was_ok = false;
+    /* Wait for PUBACK, SUBACK, PINGRESP, etc
+     * How can we limit in case of failure?
+     */
+    while (isConnected() && _waiting_for_ack) {
+        loop();
+    }
+    return _ack_was_ok;
 }
 
 /*!
@@ -672,23 +642,7 @@ bool MQTT::connect()
         goto ending;
     }
 
-    debugPrintLn(DEBUG_PREFIX + " expect CONNACK");
-    /* Handle incoming SUBACK in the next iteration of loop()
-     * Assume the ack will fail.
-     */
-    _waiting_for_ack = true;
-    _ack_was_ok = false;
-    /* Wait for ACK
-     * TODO
-     * How can we limit in case of failure?
-     * Let's hope we don't have to do PINGREQ while we're here.
-     * It is possible to receive a PUBLISH which will trigger a call to
-     * the main module to do something with it.
-     */
-    while (mqtt.isConnected() && mqtt.waitingForAck()) {
-        mqtt.loop();
-    }
-    retval = _ack_was_ok;
+    retval = waitForAck("CONNACK");
     if (retval) {
         // All went well
         _state = ST_MQTT_CONNECTED;
