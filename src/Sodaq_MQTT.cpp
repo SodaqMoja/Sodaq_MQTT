@@ -752,8 +752,8 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     flags |= (1 << 1);            // clean session
     *ptr++ = flags;
 
-    *ptr++ = keepAlive >> 8;
-    *ptr++ = keepAlive & 0xFF;
+    *ptr++ = highByte(keepAlive);
+    *ptr++ = lowByte(keepAlive);
 
     len = strlen(_clientId);
     *ptr++ = highByte(len);
@@ -824,8 +824,8 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // Add (optional) Packet Identifier
     if (qos == 1 || qos == 2) {
         // Packet Identifier only if QoS 1 or 2
-        *ptr++ = (_packetIdentifier >> 8) & 0xFF;
-        *ptr++ = _packetIdentifier & 0xFF;
+        *ptr++ = highByte(_packetIdentifier);
+        *ptr++ = lowByte(_packetIdentifier);
     }
 
     // Add Payload = topic message
@@ -901,8 +901,8 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
     // Remaining Length above
     *ptr++ = pckt_len;
 
-    *ptr++ = (_packetIdentifier >> 8) & 0xFF;
-    *ptr++ = _packetIdentifier & 0xFF;
+    *ptr++ = highByte(_packetIdentifier);
+    *ptr++ = lowByte(_packetIdentifier);
 
     // 2 byte length of topic (MSB, LSB) followed by topic
     *ptr++ = highByte(topic_length);
