@@ -67,6 +67,7 @@ public:
 private:
     bool connect();
     bool disconnect();
+    bool sendPUBACK(uint16_t msg_id);
     size_t handlePUBACK(uint8_t *pckt, size_t len);
     size_t handleSUBACK(uint8_t *pckt, size_t len);
     size_t handleCONNACK(uint8_t *pckt, size_t len);
@@ -78,6 +79,7 @@ private:
             const char * topic, uint8_t qos = 0);
     size_t assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAlive);
     //size_t assembleDisconnectPacket(uint8_t * pckt, size_t size);
+    size_t assemblePubackPacket(uint8_t * pckt, size_t size, uint16_t msg_id);
     size_t assemblePingreqPacket(uint8_t * pckt, size_t size);
     bool dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo &pckt_info);
 

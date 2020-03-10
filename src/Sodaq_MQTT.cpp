@@ -355,6 +355,35 @@ size_t MQTT::handleSUBACK(uint8_t *pckt, size_t len)
     return pckt_len;
 }
 
+bool MQTT::sendPUBACK(uint16_t msg_id)
+{
+    debugPrintLn(DEBUG_PREFIX + "send PUBACK");
+    bool retval = false;
+
+    if (_transport == 0) {
+        goto ending;
+    }
+
+    if (_state != ST_MQTT_CONNECTED) {
+        if (!connect()) {
+            goto ending;
+        }
+    }
+
+    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
+    size_t pckt_len;
+    // Assemble the PUBACK packet
+    pckt_len = assemblePubackPacket(pckt, sizeof(pckt), msg_id);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+        debugPrintLn(DEBUG_PREFIX + " failed to send PUBACK");
+        goto ending;
+    }
+    retval = true;
+
+ending:
+    return retval;
+}
+
 bool MQTT::ping()
 {
     debugPrintLn(DEBUG_PREFIX + "PINGREQ");
@@ -472,8 +501,7 @@ bool MQTT::loop()
                         if (pckt_info._qos == 0) {
                             // Nothing else to do
                         } else if (pckt_info._qos == 1) {
-                            // TODO
-                            // Send PUBACK
+                            (void)sendPUBACK(pckt_info._msg_id);
                         } else if (pckt_info._qos == 2) {
                             // TODO
                             // Send PUBREC
@@ -795,8 +823,12 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // First compute the "remaining length"
     size_t topic_length = strlen(topic);
     size_t remaining = 0;
+
+    /* The topic is encoded with a 2 byte length followed by the topic
+     */
     remaining += 2 + topic_length;
     if (qos == 1 || qos == 2) {
+        // Two bytes for the msg_id
         remaining += 2;
     }
     remaining += msg_len;
@@ -804,6 +836,10 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
         // TODO We only support max 127 bytes remaining length
         return 0;
     }
+
+    /* Compute how many bytes we need.
+     * The +2 here is for the first and the second byte.
+     */
     if ((remaining + 2) > size) {
         // Oops. It does not fit.
         return 0;
@@ -833,6 +869,33 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PUBLISH packet:");
+    debugDump(pckt, remaining + 2);
+#endif
+
+    return remaining + 2;
+}
+
+/*!
+ * \brief Assemble a PUBACK packet
+ *
+ * \returns The size of the assembled packet.
+ */
+size_t MQTT::assemblePubackPacket(uint8_t * pckt, size_t size, uint16_t msg_id)
+{
+    // Assume pckt is not NULL
+    uint8_t * ptr = pckt;
+
+    size_t remaining = 2;
+
+    // Header (DUP, QoS, and RETAIN are not used)
+    *ptr++ = (CPT_PUBACK << 4);
+    *ptr++ = remaining;
+
+    *ptr++ = highByte(msg_id);
+    *ptr++ = lowByte(msg_id);
+
+#ifdef DEBUG_DUMP_PACKETS
+    debugPrintLn(DEBUG_PREFIX + "PUBACK packet:");
     debugDump(pckt, remaining + 2);
 #endif
 
@@ -988,6 +1051,8 @@ bool MQTT::dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo
     if (pckt_info._qos == 1 || pckt_info._qos == 2) {
         pckt_info._msg_id = get_uint16_be(ptr);
         ptr += 2;
+        remaining -= 2;
+        debugPrintLn(DEBUG_PREFIX + "    QoS=" + pckt_info._qos);
         debugPrintLn(DEBUG_PREFIX + "    msg ID=" + pckt_info._msg_id);
     }
 
