@@ -1,7 +1,7 @@
 /*!
  * \file Sodaq_MQTT.cpp
  *
- * Copyright (c) 2015-2016 Kees Bakker.  All rights reserved.
+ * Copyright (c) 2015-2020 Kees Bakker.  All rights reserved.
  *
  * This file is part of Sodaq_MQTT.
  *
