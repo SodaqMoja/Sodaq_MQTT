@@ -820,7 +820,7 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
     // First compute the "remaining length"
     size_t topic_length = strlen(topic);
-    size_t remaining = 0;
+    uint32_t remaining = 0;
 
     /* The topic is encoded with a 2 byte length followed by the topic
      */
@@ -830,16 +830,12 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
         remaining += 2;
     }
     remaining += msg_len;
-    if (remaining > 127) {
-        // TODO We only support max 127 bytes remaining length
-        debugPrintLn(String(DEBUG_PREFIX + "packet 'remaining' too big: ") + remaining);
-        return 0;
-    }
 
     /* Compute how many bytes we need.
-     * The +2 here is for the first and the second byte.
+     * The +1 here is for the first byte
+     * and the +4 is for the remaining field (max 4).
      */
-    if ((remaining + 2) > size) {
+    if ((remaining + 1 + 4) > size) {
         // Oops. It does not fit.
         debugPrintLn(String(DEBUG_PREFIX + "packet too big for buffer: ") + remaining);
         return 0;
@@ -848,8 +844,17 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // Header
     const uint8_t dup = 0;
     *ptr++ = (CPT_PUBLISH << 4) | ((dup & 0x01) << 3) | ((qos & 0x03) << 1) | ((retain & 0x01) << 0);
-    // Assume length smaller than 128, or else we need multi byte length
-    *ptr++ = remaining;
+    size_t remaining_bytes = 0;
+    uint32_t tmp_remaining = remaining;
+    do {
+        uint8_t b = tmp_remaining & 0x7F;
+        tmp_remaining >>= 7;
+        if (tmp_remaining > 0) {
+            b |= 0x80;
+        }
+        *ptr++ = b;
+        remaining_bytes++;
+    } while (tmp_remaining > 0);
 
     // Add Topic. 2 byte length of topic (MSB, LSB) followed by topic
     *ptr++ = highByte(topic_length);
@@ -869,10 +874,10 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PUBLISH packet:");
-    debugDump(pckt, remaining + 2);
+    debugDump(pckt, 1 + remaining_bytes + remaining);
 #endif
 
-    return remaining + 2;
+    return 1 + remaining_bytes + remaining;
 }
 
 /*!
