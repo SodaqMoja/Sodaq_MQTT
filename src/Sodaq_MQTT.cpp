@@ -909,6 +909,8 @@ size_t MQTT::assemblePubackPacket(uint8_t * pckt, size_t size, uint16_t msg_id)
  */
 size_t MQTT::assemblePingreqPacket(uint8_t * pckt, size_t size)
 {
+    (void)size;
+
     // Assume pckt is not NULL
     uint8_t * ptr = pckt;
 
@@ -1011,6 +1013,8 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
  */
 bool MQTT::dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo &pckt_info)
 {
+    (void)len;
+
     const uint8_t *ptr;
 
     debugPrintLn(DEBUG_PREFIX + "  dissectPublish");
