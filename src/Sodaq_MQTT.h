@@ -31,7 +31,13 @@
 /*!
  * \brief The maximum length of a packet
  */
-#define MQTT_MAX_PACKET_LENGTH  100
+#ifndef MQTT_MAX_PACKET_LENGTH
+#define MQTT_MAX_PACKET_LENGTH  200
+#endif
+
+/*!
+ * \brief The default keep alive
+ */
 #define MQTT_DEFAULT_KEEP_ALIVE  60
 
 class MQTTPacketInfo;
@@ -122,6 +128,7 @@ private:
     void (*_publishHandler)(const char *topic, const uint8_t *msg, size_t msg_length);
     void (*_packetHandler)(uint8_t *pckt, size_t len);
     uint16_t _keepAlive;
+    uint8_t _pckt[MQTT_MAX_PACKET_LENGTH];
 
     bool _waiting_for_ack;
     bool _ack_was_ok;

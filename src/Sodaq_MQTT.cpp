@@ -205,11 +205,11 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
 
     newPacketIdentifier();
 
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the PUBLISH packet
-    pckt_len = assemblePublishPacket(pckt, sizeof(pckt), topic, msg, msg_len, qos, retain);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assemblePublishPacket(_pckt, sizeof(_pckt), topic, msg, msg_len, qos, retain);
+    debugPrintLn(String(DEBUG_PREFIX + "pckt_len: ") + pckt_len);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         goto ending;
     }
 
@@ -305,11 +305,10 @@ bool MQTT::subscribe(const char * topic, uint8_t qos)
 
     newPacketIdentifier();
 
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the SUBSCRIBE packet
-    pckt_len = assembleSubscribePacket(pckt, sizeof(pckt), topic, qos);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assembleSubscribePacket(_pckt, sizeof(_pckt), topic, qos);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         debugPrintLn(DEBUG_PREFIX + " failed to send SUBSCRIBE");
         goto ending;
     }
@@ -663,10 +662,9 @@ bool MQTT::connect()
     }
 
     // Assemble a CONNECT packet
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
-    pckt_len = assembleConnectPacket(pckt, sizeof(pckt), _keepAlive);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assembleConnectPacket(_pckt, sizeof(_pckt), _keepAlive);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         goto ending;
     }
 
@@ -834,6 +832,7 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     remaining += msg_len;
     if (remaining > 127) {
         // TODO We only support max 127 bytes remaining length
+        debugPrintLn(String(DEBUG_PREFIX + "packet 'remaining' too big: ") + remaining);
         return 0;
     }
 
@@ -842,6 +841,7 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
      */
     if ((remaining + 2) > size) {
         // Oops. It does not fit.
+        debugPrintLn(String(DEBUG_PREFIX + "packet too big for buffer: ") + remaining);
         return 0;
     }
 
