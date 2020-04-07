@@ -55,6 +55,9 @@
 #define debugDump(buf, len)
 #endif
 
+static inline bool is_timedout(uint32_t from, uint32_t nr_ms) __attribute__((always_inline));
+static inline bool is_timedout(uint32_t from, uint32_t nr_ms) { return (millis() - from) > nr_ms; }
+
 class MQTTPacketInfo
 {
 public:
@@ -197,10 +200,6 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
         if (!connect()) {
             goto ending;
         }
-    }
-
-    if (_waiting_for_ack) {
-        goto ending;
     }
 
     newPacketIdentifier();
@@ -452,9 +451,14 @@ bool MQTT::waitForAck(const String& expect)
     /* Wait for PUBACK, SUBACK, PINGRESP, etc
      * How can we limit in case of failure?
      */
-    while (isConnected() && _waiting_for_ack) {
+    uint32_t start_ts = millis();
+    while (!is_timedout(start_ts, MQTT_WAIT_FOR_ACK_TIMEOUT) &&
+           isConnected() && _waiting_for_ack) {
         loop();
     }
+    /* Clear the flag, even if we didn't get the ack
+     */
+    _waiting_for_ack = false;
     return _ack_was_ok;
 }
 

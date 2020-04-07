@@ -40,6 +40,11 @@
  */
 #define MQTT_DEFAULT_KEEP_ALIVE  60
 
+/*!
+ * \brief The number milliseconds as a time out value for waitForAck
+ */
+#define MQTT_WAIT_FOR_ACK_TIMEOUT   (1000L * 10)
+
 class MQTTPacketInfo;
 class MQTT
 {
