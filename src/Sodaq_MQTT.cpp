@@ -1,7 +1,7 @@
 /*!
  * \file Sodaq_MQTT.cpp
  *
- * Copyright (c) 2015-2016 Kees Bakker.  All rights reserved.
+ * Copyright (c) 2015-2020 Kees Bakker.  All rights reserved.
  *
  * This file is part of Sodaq_MQTT.
  *
@@ -33,7 +33,16 @@
 
 #include "Sodaq_MQTT.h"
 
+/**
+ * \def DEBUG Enable this define to get debug (diag) output
+ */
 #define DEBUG
+
+/**
+ * \def DEBUG_DUMP_PACKETS Enable this define to also enable diag of packets
+ */
+//#define DEBUG_DUMP_PACKETS
+
 #define DEBUG_PREFIX String("[MQTT]")
 
 #ifdef DEBUG
@@ -45,6 +54,9 @@
 #define debugPrint(...)
 #define debugDump(buf, len)
 #endif
+
+static inline bool is_timedout(uint32_t from, uint32_t nr_ms) __attribute__((always_inline));
+static inline bool is_timedout(uint32_t from, uint32_t nr_ms) { return (millis() - from) > nr_ms; }
 
 class MQTTPacketInfo
 {
@@ -81,6 +93,8 @@ MQTT::MQTT()
     _packetHandler = 0;
     _keepAlive = MQTT_DEFAULT_KEEP_ALIVE;
     _diagStream = 0;
+    _waiting_for_ack = false;
+    _ack_was_ok = false;;
 }
 
 /*!
@@ -173,7 +187,9 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
 {
     debugPrintLn(DEBUG_PREFIX + "PUBLISH topic: " + topic);
     debugPrintLn(DEBUG_PREFIX + "PUBLISH msg: " + (const char *)msg);
+#ifdef DEBUG_DUMP_PACKETS
     debugDump(msg, msg_len);
+#endif
     bool retval = false;
 
     if (_transport == 0) {
@@ -188,51 +204,25 @@ bool MQTT::publish(const char * topic, const uint8_t * msg, size_t msg_len, uint
 
     newPacketIdentifier();
 
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the PUBLISH packet
-    pckt_len = assemblePublishPacket(pckt, sizeof(pckt), topic, msg, msg_len, qos, retain);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assemblePublishPacket(_pckt, sizeof(_pckt), topic, msg, msg_len, qos, retain);
+    debugPrintLn(String(DEBUG_PREFIX + "pckt_len: ") + pckt_len);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         goto ending;
     }
 
     if (qos == 0) {
         // Nothing to be received
+        retval = true;
     } else if (qos == 1) {
-        // Handle incoming PUBACK
-        // Expecting PUBACK 4? 02 ?? ??
-        size_t pckt_size;
-        uint8_t mqtt_puback[4];
-        uint16_t pckt_id;
-        pckt_size = _transport->receiveMQTTPacket(mqtt_puback, sizeof(mqtt_puback));
-        if (pckt_size == 0) {
-            debugPrintLn(DEBUG_PREFIX + " timed out");
-            goto ending;
-        }
-        if (pckt_size != sizeof(mqtt_puback)) {
-            debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-            goto ending;
-        }
-        if (mqtt_puback[0] != (CPT_PUBACK << 4)) {
-            debugPrintLn(DEBUG_PREFIX + " not PUBACK");
-            goto ending;
-        }
-        if (mqtt_puback[1] != 2) {
-            debugPrintLn(DEBUG_PREFIX + " not correct length");
-            goto ending;
-        }
-        pckt_id = ((uint16_t)mqtt_puback[2] << 8) | mqtt_puback[3];
-        if (pckt_id != _packetIdentifier) {
-            debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
-            goto ending;
-        }
+        retval = waitForAck("PUBACK");
     } else if (qos == 2) {
         // Handle incoming PUBREC
         // TODO
     } else {
         // Shouldn't happen
     }
-    retval = true;
 
 ending:
     return retval;
@@ -250,6 +240,39 @@ ending:
 bool MQTT::publish(const char * topic, const char * msg, uint8_t qos, uint8_t retain)
 {
     return publish(topic, (const uint8_t *)msg, strlen(msg), qos, retain);
+}
+
+/**
+ * Handle incoming PUBACK
+ *
+ * Expecting PUBACK 4? 02 ?? ??
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handlePUBACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 4;
+    debugPrintLn(DEBUG_PREFIX + " got PUBACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 2) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+    uint16_t pckt_id= ((uint16_t)pckt[2] << 8) | pckt[3];
+    if (pckt_id != _packetIdentifier) {
+        debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 /*!
@@ -281,46 +304,78 @@ bool MQTT::subscribe(const char * topic, uint8_t qos)
 
     newPacketIdentifier();
 
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the SUBSCRIBE packet
-    pckt_len = assembleSubscribePacket(pckt, sizeof(pckt), topic, qos);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assembleSubscribePacket(_pckt, sizeof(_pckt), topic, qos);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         debugPrintLn(DEBUG_PREFIX + " failed to send SUBSCRIBE");
         goto ending;
     }
 
-    // Receive the SUBACK packet
-    // Expecting SUBACK 90 03 00 01 00
-    size_t pckt_size;
-    uint8_t mqtt_suback[5];
-    uint16_t pckt_id;
-    //uint8_t suback_return_code;
-    pckt_size = _transport->receiveMQTTPacket(mqtt_suback, sizeof(mqtt_suback));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
+    retval = waitForAck("SUBACK");
+
+ending:
+    return retval;
+}
+
+/**
+ * Handle incoming SUBACK
+ *
+ * Expecting SUBACK 90 03 00 01 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handleSUBACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 5;
+    debugPrintLn(DEBUG_PREFIX + " got SUBACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
     }
-    if (pckt_size != sizeof(mqtt_suback)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
-    }
-    if (mqtt_suback[0] != (CPT_SUBACK << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not SUBACK");
-        goto ending;
-    }
-    if (mqtt_suback[1] != 3) {
+    if (pckt[1] != 3) {
         debugPrintLn(DEBUG_PREFIX + " not correct length");
-        goto ending;
+        return 0;
     }
-    pckt_id = ((uint16_t)mqtt_suback[2] << 8) | mqtt_suback[3];
+    uint16_t pckt_id= ((uint16_t)pckt[2] << 8) | pckt[3];
     if (pckt_id != _packetIdentifier) {
         debugPrintLn(DEBUG_PREFIX + " wrong packet identifier");
-        goto ending;
+        return 0;
     }
     //suback_return_code = mqtt_suback[4];
     // TODO Decide what we want to do with this
 
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
+}
+
+bool MQTT::sendPUBACK(uint16_t msg_id)
+{
+    debugPrintLn(DEBUG_PREFIX + "send PUBACK");
+    bool retval = false;
+
+    if (_transport == 0) {
+        goto ending;
+    }
+
+    if (_state != ST_MQTT_CONNECTED) {
+        if (!connect()) {
+            goto ending;
+        }
+    }
+
+    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
+    size_t pckt_len;
+    // Assemble the PUBACK packet
+    pckt_len = assemblePubackPacket(pckt, sizeof(pckt), msg_id);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+        debugPrintLn(DEBUG_PREFIX + " failed to send PUBACK");
+        goto ending;
+    }
     retval = true;
 
 ending:
@@ -342,8 +397,6 @@ bool MQTT::ping()
         }
     }
 
-    newPacketIdentifier();
-
     uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
     // Assemble the SUBSCRIBE packet
@@ -353,33 +406,60 @@ bool MQTT::ping()
         goto ending;
     }
 
-    // Receive the PINGRESP packet
-    // Expecting PINGRESP D0 00
-    size_t pckt_size;
-    uint8_t reply_pckt[2];
-    //uint8_t suback_return_code;
-    pckt_size = _transport->receiveMQTTPacket(reply_pckt, sizeof(reply_pckt));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
-    }
-    if (pckt_size != sizeof(reply_pckt)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
-    }
-    if (reply_pckt[0] != (CPT_PINGRESP << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not PINGRESP");
-        goto ending;
-    }
-    if (reply_pckt[1] != 0) {
-        debugPrintLn(DEBUG_PREFIX + " not correct length");
-        goto ending;
-    }
-
-    retval = true;
+    retval = waitForAck("PINGRESP");
 
 ending:
     return retval;
+}
+
+/**
+ * Handle incoming PINGRESP
+ *
+ * Expecting PINGRESP D0 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handlePINGRESP(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 2;
+    debugPrintLn(DEBUG_PREFIX + " got PINGRESP");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 0) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
+}
+
+bool MQTT::waitForAck(const String& expect)
+{
+    debugPrintLn(DEBUG_PREFIX + " expect " + expect);
+    /* Handle incoming PINGRESP in the next iteration of loop()
+     * Assume the it will fail.
+     */
+    _waiting_for_ack = true;
+    _ack_was_ok = false;
+    /* Wait for PUBACK, SUBACK, PINGRESP, etc
+     * How can we limit in case of failure?
+     */
+    uint32_t start_ts = millis();
+    while (!is_timedout(start_ts, MQTT_WAIT_FOR_ACK_TIMEOUT) &&
+           isConnected() && _waiting_for_ack) {
+        loop();
+    }
+    /* Clear the flag, even if we didn't get the ack
+     */
+    _waiting_for_ack = false;
+    return _ack_was_ok;
 }
 
 /*!
@@ -394,6 +474,7 @@ bool MQTT::loop()
     bool status;
     size_t pckt_size;
     size_t pckt_ix;
+    size_t pckt_len;
     pckt_size = _transport->availableMQTTPacket();
     if (pckt_size > 0) {
         uint8_t mqtt_packets[256];
@@ -403,8 +484,6 @@ bool MQTT::loop()
 
         pckt_size = _transport->receiveMQTTPacket(mqtt_packets, sizeof(mqtt_packets));
         if (pckt_size > 0) {
-            // TODO
-
             debugPrintLn(DEBUG_PREFIX + " received packet:");
             debugDump(mqtt_packets, pckt_size);
 
@@ -425,8 +504,7 @@ bool MQTT::loop()
                         if (pckt_info._qos == 0) {
                             // Nothing else to do
                         } else if (pckt_info._qos == 1) {
-                            // TODO
-                            // Send PUBACK
+                            (void)sendPUBACK(pckt_info._msg_id);
                         } else if (pckt_info._qos == 2) {
                             // TODO
                             // Send PUBREC
@@ -446,6 +524,55 @@ bool MQTT::loop()
                         pckt_ix = pckt_size;
                     }
                     break;
+
+                case CPT_CONNACK:
+                    pckt_len = handleCONNACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_PUBACK:
+                    pckt_len = handlePUBACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_SUBACK:
+                    pckt_len = handleSUBACK(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
+                case CPT_PINGRESP:
+                    pckt_len = handlePINGRESP(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
+                    if (pckt_len == 0) {
+                        /* Something is wrong. Skip the rest
+                         */
+                        pckt_ix = pckt_size;
+                    }
+                    else {
+                        pckt_ix += pckt_len;
+                    }
+                    break;
+
                 default:
                     if (_packetHandler) {
                         _packetHandler(&mqtt_packets[pckt_ix], pckt_size - pckt_ix);
@@ -539,45 +666,53 @@ bool MQTT::connect()
     }
 
     // Assemble a CONNECT packet
-    uint8_t pckt[MQTT_MAX_PACKET_LENGTH];
     size_t pckt_len;
-    pckt_len = assembleConnectPacket(pckt, sizeof(pckt), _keepAlive);
-    if (pckt_len == 0 || !_transport->sendMQTTPacket(pckt, pckt_len)) {
+    pckt_len = assembleConnectPacket(_pckt, sizeof(_pckt), _keepAlive);
+    if (pckt_len == 0 || !_transport->sendMQTTPacket(_pckt, pckt_len)) {
         goto ending;
     }
 
-    // Receive the CONNACK packet
-    // Expecting CONNACK 20 02 00 00
-    size_t pckt_size;
-    uint8_t mqtt_connack[4];
-    pckt_size = _transport->receiveMQTTPacket(mqtt_connack, sizeof(mqtt_connack));
-    if (pckt_size == 0) {
-        debugPrintLn(DEBUG_PREFIX + " timed out");
-        goto ending;
+    retval = waitForAck("CONNACK");
+    if (retval) {
+        // All went well
+        _state = ST_MQTT_CONNECTED;
     }
-    if (pckt_size != sizeof(mqtt_connack)) {
-        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size " + pckt_size);
-        goto ending;
-    }
-    if (pckt_size != sizeof(mqtt_connack)) {
-        goto ending;
-    }
-    if (mqtt_connack[0] != (CPT_CONNACK << 4)) {
-        debugPrintLn(DEBUG_PREFIX + " not CONNACK, but " + (mqtt_connack[0] >> 4));
-        goto ending;
-    }
-    // Return code
-    if (mqtt_connack[3] != 0) {
-        debugPrintLn(DEBUG_PREFIX + " connection not accepted, return code " + mqtt_connack[3]);
-        goto ending;
-    }
-
-    // All went well
-    _state = ST_MQTT_CONNECTED;
-    retval = true;
 
 ending:
     return retval;
+}
+
+/**
+ * Handle incoming CONNACK
+ *
+ * Expecting CONNACK 20 02 00 00
+ *
+ * This function is being called from loop()
+ */
+size_t MQTT::handleCONNACK(uint8_t *pckt, size_t len)
+{
+    const size_t pckt_len = 4;
+    debugPrintLn(DEBUG_PREFIX + " got CONNACK");
+    _waiting_for_ack = false;
+    if (len < pckt_len) {
+        debugPrintLn(DEBUG_PREFIX + " wrong pckt_size");
+        return 0;
+    }
+    if (pckt[1] != 2) {
+        debugPrintLn(DEBUG_PREFIX + " not correct length");
+        return 0;
+    }
+    // Return code
+    if (pckt[3] != 0) {
+        debugPrintLn(DEBUG_PREFIX + " connection not accepted, return code " + pckt[3]);
+        return 0;
+    }
+
+    _ack_was_ok = true;
+
+    /* Return the length of the packet
+     */
+    return pckt_len;
 }
 
 /*!
@@ -647,8 +782,8 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     flags |= (1 << 1);            // clean session
     *ptr++ = flags;
 
-    *ptr++ = keepAlive >> 8;
-    *ptr++ = keepAlive & 0xFF;
+    *ptr++ = highByte(keepAlive);
+    *ptr++ = lowByte(keepAlive);
 
     len = strlen(_clientId);
     *ptr++ = highByte(len);
@@ -668,8 +803,10 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     memcpy(ptr, _password, len);
     ptr += len;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "CONNECT packet:");
     debugDump(pckt, pckt_len + 2);
+#endif
 
     return pckt_len + 2;
 }
@@ -687,26 +824,41 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
     // First compute the "remaining length"
     size_t topic_length = strlen(topic);
-    size_t remaining = 0;
+    uint32_t remaining = 0;
+
+    /* The topic is encoded with a 2 byte length followed by the topic
+     */
     remaining += 2 + topic_length;
     if (qos == 1 || qos == 2) {
+        // Two bytes for the msg_id
         remaining += 2;
     }
     remaining += msg_len;
-    if (remaining > 127) {
-        // TODO We only support max 127 bytes remaining length
-        return 0;
-    }
-    if ((remaining + 2) > size) {
+
+    /* Compute how many bytes we need.
+     * The +1 here is for the first byte
+     * and the +4 is for the remaining field (max 4).
+     */
+    if ((remaining + 1 + 4) > size) {
         // Oops. It does not fit.
+        debugPrintLn(String(DEBUG_PREFIX + "packet too big for buffer: ") + remaining);
         return 0;
     }
 
     // Header
     const uint8_t dup = 0;
     *ptr++ = (CPT_PUBLISH << 4) | ((dup & 0x01) << 3) | ((qos & 0x03) << 1) | ((retain & 0x01) << 0);
-    // Assume length smaller than 128, or else we need multi byte length
-    *ptr++ = remaining;
+    size_t remaining_bytes = 0;
+    uint32_t tmp_remaining = remaining;
+    do {
+        uint8_t b = tmp_remaining & 0x7F;
+        tmp_remaining >>= 7;
+        if (tmp_remaining > 0) {
+            b |= 0x80;
+        }
+        *ptr++ = b;
+        remaining_bytes++;
+    } while (tmp_remaining > 0);
 
     // Add Topic. 2 byte length of topic (MSB, LSB) followed by topic
     *ptr++ = highByte(topic_length);
@@ -717,15 +869,44 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // Add (optional) Packet Identifier
     if (qos == 1 || qos == 2) {
         // Packet Identifier only if QoS 1 or 2
-        *ptr++ = (_packetIdentifier >> 8) & 0xFF;
-        *ptr++ = _packetIdentifier & 0xFF;
+        *ptr++ = highByte(_packetIdentifier);
+        *ptr++ = lowByte(_packetIdentifier);
     }
 
     // Add Payload = topic message
     memcpy(ptr, msg, msg_len);
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PUBLISH packet:");
+    debugDump(pckt, 1 + remaining_bytes + remaining);
+#endif
+
+    return 1 + remaining_bytes + remaining;
+}
+
+/*!
+ * \brief Assemble a PUBACK packet
+ *
+ * \returns The size of the assembled packet.
+ */
+size_t MQTT::assemblePubackPacket(uint8_t * pckt, size_t size, uint16_t msg_id)
+{
+    // Assume pckt is not NULL
+    uint8_t * ptr = pckt;
+
+    size_t remaining = 2;
+
+    // Header (DUP, QoS, and RETAIN are not used)
+    *ptr++ = (CPT_PUBACK << 4);
+    *ptr++ = remaining;
+
+    *ptr++ = highByte(msg_id);
+    *ptr++ = lowByte(msg_id);
+
+#ifdef DEBUG_DUMP_PACKETS
+    debugPrintLn(DEBUG_PREFIX + "PUBACK packet:");
     debugDump(pckt, remaining + 2);
+#endif
 
     return remaining + 2;
 }
@@ -737,6 +918,8 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
  */
 size_t MQTT::assemblePingreqPacket(uint8_t * pckt, size_t size)
 {
+    (void)size;
+
     // Assume pckt is not NULL
     uint8_t * ptr = pckt;
 
@@ -746,8 +929,10 @@ size_t MQTT::assemblePingreqPacket(uint8_t * pckt, size_t size)
     *ptr++ = (CPT_PINGREQ << 4);
     *ptr++ = remaining;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PINGREQ packet:");
     debugDump(pckt, remaining + 2);
+#endif
 
     return remaining + 2;
 }
@@ -790,8 +975,8 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
     // Remaining Length above
     *ptr++ = pckt_len;
 
-    *ptr++ = (_packetIdentifier >> 8) & 0xFF;
-    *ptr++ = _packetIdentifier & 0xFF;
+    *ptr++ = highByte(_packetIdentifier);
+    *ptr++ = lowByte(_packetIdentifier);
 
     // 2 byte length of topic (MSB, LSB) followed by topic
     *ptr++ = highByte(topic_length);
@@ -800,8 +985,10 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
     ptr += topic_length;
     *ptr++ = qos & 0x3;
 
+#ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "SUBSCRIBE packet:");
     debugDump(pckt, pckt_len + 2);
+#endif
 
     return pckt_len + 2;
 }
@@ -835,6 +1022,8 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
  */
 bool MQTT::dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo &pckt_info)
 {
+    (void)len;
+
     const uint8_t *ptr;
 
     debugPrintLn(DEBUG_PREFIX + "  dissectPublish");
@@ -875,6 +1064,8 @@ bool MQTT::dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo
     if (pckt_info._qos == 1 || pckt_info._qos == 2) {
         pckt_info._msg_id = get_uint16_be(ptr);
         ptr += 2;
+        remaining -= 2;
+        debugPrintLn(DEBUG_PREFIX + "    QoS=" + pckt_info._qos);
         debugPrintLn(DEBUG_PREFIX + "    msg ID=" + pckt_info._msg_id);
     }
 

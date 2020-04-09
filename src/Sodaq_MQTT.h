@@ -1,7 +1,7 @@
 /*!
  * \file Sodaq_MQTT.h
  *
- * Copyright (c) 2015 Kees Bakker.  All rights reserved.
+ * Copyright (c) 2015-2020 Kees Bakker.  All rights reserved.
  *
  * This file is part of Sodaq_MQTT.
  *
@@ -31,8 +31,19 @@
 /*!
  * \brief The maximum length of a packet
  */
-#define MQTT_MAX_PACKET_LENGTH  100
+#ifndef MQTT_MAX_PACKET_LENGTH
+#define MQTT_MAX_PACKET_LENGTH  200
+#endif
+
+/*!
+ * \brief The default keep alive
+ */
 #define MQTT_DEFAULT_KEEP_ALIVE  60
+
+/*!
+ * \brief The number milliseconds as a time out value for waitForAck
+ */
+#define MQTT_WAIT_FOR_ACK_TIMEOUT   (1000L * 10)
 
 class MQTTPacketInfo;
 class MQTT
@@ -52,6 +63,8 @@ public:
     void setPublishHandler(void (*handler)(const char *topic, const uint8_t *msg, size_t msg_length));
     void setPacketHandler(void (*handler)(uint8_t *pckt, size_t len));
     bool loop();
+    bool waitingForAck() { return _waiting_for_ack; }
+    bool wasAckOK() { return _ack_was_ok; }
     bool availablePacket();
     bool open();
     void close(bool switchOff=true);
@@ -65,12 +78,19 @@ public:
 private:
     bool connect();
     bool disconnect();
+    bool sendPUBACK(uint16_t msg_id);
+    size_t handlePUBACK(uint8_t *pckt, size_t len);
+    size_t handleSUBACK(uint8_t *pckt, size_t len);
+    size_t handleCONNACK(uint8_t *pckt, size_t len);
+    size_t handlePINGRESP(uint8_t *pckt, size_t len);
+    bool waitForAck(const String& expect);
     size_t assemblePublishPacket(uint8_t * pckt, size_t size,
             const char * topic, const uint8_t * msg, size_t msg_len, uint8_t qos = 0, uint8_t retain = 1);
     size_t assembleSubscribePacket(uint8_t * pckt, size_t size,
             const char * topic, uint8_t qos = 0);
     size_t assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAlive);
     //size_t assembleDisconnectPacket(uint8_t * pckt, size_t size);
+    size_t assemblePubackPacket(uint8_t * pckt, size_t size, uint16_t msg_id);
     size_t assemblePingreqPacket(uint8_t * pckt, size_t size);
     bool dissectPublishPacket(const uint8_t * pckt, size_t len, MQTTPacketInfo &pckt_info);
 
@@ -113,6 +133,10 @@ private:
     void (*_publishHandler)(const char *topic, const uint8_t *msg, size_t msg_length);
     void (*_packetHandler)(uint8_t *pckt, size_t len);
     uint16_t _keepAlive;
+    uint8_t _pckt[MQTT_MAX_PACKET_LENGTH];
+
+    bool _waiting_for_ack;
+    bool _ack_was_ok;
 
     // The (optional) stream to show debug information.
     Stream* _diagStream;
