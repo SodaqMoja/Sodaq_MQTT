@@ -752,9 +752,13 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     size_t len;
     size_t pckt_len = 2 + strlen(protocol_name)
               + 4
-              + 2 + strlen(_clientId)
-              + 2 + strlen(_name)
-              + 2 + strlen(_password);
+              + 2 + strlen(_clientId);
+    if (_name) {
+        pckt_len += 2 + strlen(_name);
+        if (_password) {
+            pckt_len += 2 + strlen(_password);
+        }
+    }
     if (size < (pckt_len + 2)) {
         // Oops. It does not fit. Truncate and hope for the best.
         pckt_len = size - 2;
@@ -776,8 +780,11 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     *ptr++ = protocol_level;
     //   Connect Flags,
     uint8_t flags = 0;
-    if (_name != 0 && _password != 0) {
-        flags |= (1 << 7) | (1 << 6);
+    if (_name) {
+        flags |= (1 << 7);
+        if (_password) {
+            flags |= (1 << 6);
+        }
     }
     flags |= (1 << 1);            // clean session
     *ptr++ = flags;
@@ -791,17 +798,21 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
     memcpy(ptr, _clientId, len);
     ptr += len;
 
-    len = strlen(_name);
-    *ptr++ = highByte(len);
-    *ptr++ = lowByte(len);
-    memcpy(ptr, _name, len);
-    ptr += len;
+    if (_name) {
+        len = strlen(_name);
+        *ptr++ = highByte(len);
+        *ptr++ = lowByte(len);
+        memcpy(ptr, _name, len);
+        ptr += len;
 
-    len = strlen(_password);
-    *ptr++ = highByte(len);
-    *ptr++ = lowByte(len);
-    memcpy(ptr, _password, len);
-    ptr += len;
+        if (_password) {
+            len = strlen(_password);
+            *ptr++ = highByte(len);
+            *ptr++ = lowByte(len);
+            memcpy(ptr, _password, len);
+            ptr += len;
+        }
+    }
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "CONNECT packet:");
