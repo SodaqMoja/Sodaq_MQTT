@@ -98,6 +98,7 @@ private:
 
     uint32_t getRemainingLength(const uint8_t *buf, size_t & nrBytes);
     uint16_t get_uint16_be(const uint8_t *buf);
+    size_t writeRemainingLength(size_t length, uint8_t * &ptr);
 
     enum ControlPacketType_e {
         CPT_CONNECT = 1,

@@ -759,14 +759,15 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
             pckt_len += 2 + strlen(_password);
         }
     }
-    if (size < (pckt_len + 2)) {
+    // +4 is for the max amount of remaining length bytes
+    if (size < (pckt_len + 4)) {
         // Oops. It does not fit. Truncate and hope for the best.
-        pckt_len = size - 2;
+        pckt_len = size - 4;
     }
 
     *ptr++ = (CPT_CONNECT << 4) | 0;
-    // Assume length smaller than 128, or else we need multi byte length
-    *ptr++ = pckt_len;
+
+    size_t varint_len = writeRemainingLength(pckt_len, ptr);
 
     // Variable header:
     //   Protocol Name,
@@ -816,10 +817,10 @@ size_t MQTT::assembleConnectPacket(uint8_t * pckt, size_t size, uint16_t keepAli
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "CONNECT packet:");
-    debugDump(pckt, pckt_len + 2);
+    debugDump(pckt, pckt_len + varint_len + 1);
 #endif
 
-    return pckt_len + 2;
+    return pckt_len + varint_len + 1;
 }
 
 /*!
@@ -859,17 +860,8 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
     // Header
     const uint8_t dup = 0;
     *ptr++ = (CPT_PUBLISH << 4) | ((dup & 0x01) << 3) | ((qos & 0x03) << 1) | ((retain & 0x01) << 0);
-    size_t remaining_bytes = 0;
-    uint32_t tmp_remaining = remaining;
-    do {
-        uint8_t b = tmp_remaining & 0x7F;
-        tmp_remaining >>= 7;
-        if (tmp_remaining > 0) {
-            b |= 0x80;
-        }
-        *ptr++ = b;
-        remaining_bytes++;
-    } while (tmp_remaining > 0);
+
+    size_t varint_len = writeRemainingLength(remaining, ptr);
 
     // Add Topic. 2 byte length of topic (MSB, LSB) followed by topic
     *ptr++ = highByte(topic_length);
@@ -889,10 +881,10 @@ size_t MQTT::assemblePublishPacket(uint8_t * pckt, size_t size,
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "PUBLISH packet:");
-    debugDump(pckt, 1 + remaining_bytes + remaining);
+    debugDump(pckt, 1 + varint_len + remaining);
 #endif
 
-    return 1 + remaining_bytes + remaining;
+    return 1 + varint_len + remaining;
 }
 
 /*!
@@ -982,9 +974,8 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
 
     size_t pckt_len = 2 + topic_length + topic_extra;
     *ptr++ = (CPT_SUBSCRIBE << 4) | (2 << 0);         // reserved field must be 0010
-    // Assume length smaller than 128, or else we need multi byte length, see note about
-    // Remaining Length above
-    *ptr++ = pckt_len;
+
+    size_t varint_len = writeRemainingLength(pckt_len, ptr);
 
     *ptr++ = highByte(_packetIdentifier);
     *ptr++ = lowByte(_packetIdentifier);
@@ -998,10 +989,10 @@ size_t MQTT::assembleSubscribePacket(uint8_t * pckt, size_t size,
 
 #ifdef DEBUG_DUMP_PACKETS
     debugPrintLn(DEBUG_PREFIX + "SUBSCRIBE packet:");
-    debugDump(pckt, pckt_len + 2);
+    debugDump(pckt, pckt_len + varint_len + 1);
 #endif
 
-    return pckt_len + 2;
+    return pckt_len + varint_len + 1;
 }
 
 /*
@@ -1143,6 +1134,27 @@ uint32_t MQTT::getRemainingLength(const uint8_t *buf, size_t & nrBytes)
 uint16_t MQTT::get_uint16_be(const uint8_t * buf)
 {
     return (uint16_t)(buf[0] << 8) | buf[1];
+}
+
+/*
+ * Write a variable length int to the buffer as defined in MQTT spec v3.1.1
+ */
+size_t MQTT::writeRemainingLength(size_t length, uint8_t * &ptr)
+{
+    size_t len = 0;
+    // from pseudocode https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718023
+    uint8_t encodedByte;
+    do {
+        encodedByte = length % 128;
+        length = length / 128;
+        if (length > 0) {
+            encodedByte = encodedByte | 128;
+        }
+        *ptr++ = encodedByte;
+        len++;
+    } while (length > 0);
+
+    return len;
 }
 
 /*
